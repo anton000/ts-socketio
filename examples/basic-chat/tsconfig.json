@@ -1,0 +1,22 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "outDir": "./dist",
+    "rootDir": "./src",
+    "noEmit": false, // Allow emitting for dev server
+    "composite": false, // Not a library, so no composite
+    "baseUrl": ".",
+    "paths": {
+      "@ts-socketio/core": ["../../packages/core/src"],
+      "@ts-socketio/client": ["../../packages/client/src"],
+      "@ts-socketio/server": ["../../packages/server/src"]
+    }
+  },
+  "include": ["src/**/*"],
+  "exclude": ["node_modules", "dist"],
+  "references": [
+    { "path": "../../packages/core" },
+    { "path": "../../packages/client" },
+    { "path": "../../packages/server" }
+  ]
+} 

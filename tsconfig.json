@@ -1,0 +1,42 @@
+{
+  "compilerOptions": {
+    /* Base Options */
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "target": "ES2022",
+    "allowJs": true,
+    "resolveJsonModule": true,
+    "moduleDetection": "force",
+    "isolatedModules": true,
+
+    /* Strictness */
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitAny": true,
+
+    /* Modules */
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "baseUrl": ".",
+    "paths": {
+      "@ts-socketio/core": ["packages/core/src"],
+      "@ts-socketio/client": ["packages/client/src"],
+      "@ts-socketio/server": ["packages/server/src"],
+      "@ts-socketio/nestjs": ["packages/nestjs/src"]
+    },
+
+    /* Emit */
+    "declaration": true,
+    "sourceMap": true,
+    "outDir": "dist",
+    "removeComments": true,
+    "noEmit": true, // Prevent root tsc from emitting; each package handles its own build
+
+    /* Linter */
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true,
+    "forceConsistentCasingInFileNames": true
+  },
+  "exclude": ["node_modules", "**/dist", "**/node_modules"]
+} 
