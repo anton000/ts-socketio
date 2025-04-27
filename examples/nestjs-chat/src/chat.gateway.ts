@@ -1,25 +1,21 @@
 import { 
-  SubscribeMessage, 
   WebSocketGateway, 
   WebSocketServer, 
-  MessageBody, 
-  ConnectedSocket, 
   OnGatewayConnection, 
-  OnGatewayDisconnect 
+  OnGatewayDisconnect, 
 } from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
 import { 
   TypedServer, 
   TypedServerEmitter, 
-  tsSocketioHandler, 
-  InferResponse
+  TsSocketHandler,       
+  tsParseServerEvents,   
+  InferPayload
 } from '@ts-socketio/nestjs';
 import { chatContract, ChatContractType } from './contract';
 
-// Define constants for easier access to event SCHEMAS
-const SetNicknameSchemas = chatContract.definition.Client!.setNickname;
-const SendMessageSchemas = chatContract.definition.sendMessage;
-const TypingSchemas = chatContract.definition.Client!.typing;
+// Parse the contract as per the outline
+const { serverContract } = tsParseServerEvents(chatContract);
 
 // In-memory store (same as basic-chat example)
 interface User {
@@ -34,16 +30,13 @@ const users: Record<string, User> = {};
   },
 })
 export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
-  // Inject the raw Socket.IO server
   @WebSocketServer()
   server!: Server;
 
-  // Inject the type-safe emitter using our contract
   @TypedServer(chatContract)
   typedServer!: TypedServerEmitter<ChatContractType>;
 
   // --- Lifecycle Hooks ---
-
   handleConnection(client: Socket) {
     console.log(`[NestJS] Client connected: ${client.id}`);
   }
@@ -53,7 +46,6 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     if (user) {
       console.log(`[NestJS] Client disconnected: ${user.nickname} (${client.id})`);
       delete users[client.id];
-      // Notify others using the typed emitter
       this.typedServer.userNotification({
         userId: client.id,
         nickname: user.nickname,
@@ -62,90 +54,53 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     }
   }
 
-  // --- Event Handlers ---
+  // --- Event Handlers (Using updated decorator) ---
 
-  @SubscribeMessage('setNickname')
-  async handleSetNickname(
-    @MessageBody() data: unknown,
-    @ConnectedSocket() socket: Socket,
-  ) {
-    return tsSocketioHandler(
-      // Pass the schemas object
-      { payload: SetNicknameSchemas.payload, response: SetNicknameSchemas.response },
-      data, 
-      socket, 
-      this.server, 
-      async (ctx) => { 
-        // Now context payload should be correctly inferred, no cast needed
-        console.log(`[NestJS] User ${ctx.socket.id} wants nickname: ${ctx.payload.nickname}`);
-        const nickname = ctx.payload.nickname.trim();
-        users[ctx.socket.id] = { id: ctx.socket.id, nickname };
+  @TsSocketHandler(serverContract.setNickname)
+  async handleSetNickname(ctx: any) { 
+    console.log(`[NestJS] User ${ctx.socket.id} wants nickname: ${ctx.payload.nickname}`);
+    console.log(`  Metadata: Msg ID: ${ctx.metadata.messageId}`);
+    
+    const nickname = ctx.payload.nickname.trim();
+    users[ctx.socket.id] = { id: ctx.socket.id, nickname };
 
-        this.typedServer.userNotification({
-          userId: ctx.socket.id,
-          nickname,
-          message: `${nickname} joined the chat.`
-        });
+    this.typedServer.userNotification({
+      userId: ctx.socket.id,
+      nickname,
+      message: `${nickname} joined the chat.`
+    });
 
-        // Return type should match ResponseSchema
-        const response: InferResponse<typeof SetNicknameSchemas> = { 
-          success: true, 
-          message: 'OK', 
-          assignedNickname: nickname 
-        };
-        return response;
-      }
-    );
+    return {
+      success: true,
+      message: 'OK',
+      assignedNickname: nickname
+    };
   }
 
-  @SubscribeMessage('sendMessage')
-  handleSendMessage(
-    @MessageBody() data: unknown,
-    @ConnectedSocket() socket: Socket,
-  ) {
-    return tsSocketioHandler(
-      // Only pass payload schema as response is not defined
-      { payload: SendMessageSchemas.payload }, 
-      data, 
-      socket, 
-      this.server, 
-      (ctx) => {
-        // Context payload should be correctly inferred
-        const user = users[ctx.socket.id];
-        if (!user) return;
-        console.log(`[NestJS] Message from ${user.nickname}: ${ctx.payload.text}`);
-
-        this.typedServer.sendMessage({
-          text: ctx.payload.text,
-          senderId: ctx.socket.id,
-          senderNickname: user.nickname
-        });
-      }
-    );
+  @TsSocketHandler(serverContract.sendMessage)
+  async handleSendMessage(ctx: any) {
+    const user = users[ctx.socket.id];
+    if (!user) return;
+    console.log(`[NestJS] Message from ${user.nickname}: ${ctx.payload.text}`);
+    
+    const broadcastPayload: InferPayload<ChatContractType['definition']['sendMessage']> = {
+      text: ctx.payload.text,
+      senderId: ctx.socket.id,
+      senderNickname: user.nickname
+    };
+    this.typedServer.sendMessage(broadcastPayload);
   }
 
-  @SubscribeMessage('typing')
-  handleTyping(
-    @MessageBody() data: unknown,
-    @ConnectedSocket() socket: Socket,
-  ) {
-    return tsSocketioHandler(
-      // Only pass payload schema as response is not defined
-      { payload: TypingSchemas.payload },
-      data, 
-      socket, 
-      this.server,
-      (ctx) => {
-        // Context payload should be correctly inferred
-        const user = users[ctx.socket.id];
-        if (!user) return;
-
-        this.typedServer.typingStatus({
-          userId: ctx.socket.id,
-          nickname: user.nickname,
-          isTyping: ctx.payload.isTyping
-        });
-      }
-    );
+  @TsSocketHandler(serverContract.typing)
+  async handleTyping(ctx: any) {
+    const user = users[ctx.socket.id];
+    if (!user) return;
+    console.log(`[NestJS] Typing status from ${user.nickname}: ${ctx.payload.isTyping}`);
+    
+    this.typedServer.typingStatus({
+      userId: ctx.socket.id,
+      nickname: user.nickname,
+      isTyping: ctx.payload.isTyping
+    });
   }
 } 
