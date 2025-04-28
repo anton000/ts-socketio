@@ -1,6 +1,6 @@
 {
   "name": "@ts-socketio/core",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "scripts": {
@@ -10,7 +10,8 @@
   "license": "MIT",
   "dependencies": {
     "uuid": "^11.1.0",
-    "zod": "^3.24.3"
+    "zod": "^3.24.3",
+    "@ts-socketio/core": "^0.1.1"
   },
   "devDependencies": {
     "@types/uuid": "^10.0.0"
