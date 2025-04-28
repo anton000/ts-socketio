@@ -1,6 +1,6 @@
 {
   "name": "ts-socketio-example-nestjs-chat",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "private": true,
   "description": "NestJS Chat Example using ts-socketio",
   "license": "MIT",
@@ -17,7 +17,7 @@
     "@nestjs/platform-express": "^10.0.0",
     "@nestjs/platform-socket.io": "^10.0.0",
     "@nestjs/websockets": "^10.0.0",
-    "@ts-socketio/nestjs": "0.0.1",
+    "@ts-socketio/nestjs": "^0.1.0",
     "reflect-metadata": "^0.2.0",
     "rxjs": "^7.8.1",
     "socket.io": "^4.7.5" 

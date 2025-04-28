@@ -43,29 +43,59 @@ jobs:
             else
               # If no version in tag, increment minor version
               CURRENT_VERSION=$(node -p "require('./package.json').version")
-              IFS='.' read -r major minor patch <<< "$CURRENT_VERSION"
+              # Remove any beta suffix for version calculation
+              BASE_VERSION=${CURRENT_VERSION%-*}
+              IFS='.' read -r major minor patch <<< "$BASE_VERSION"
               NEW_MINOR=$((minor + 1))
               echo "VERSION=${major}.${NEW_MINOR}.0" >> $GITHUB_OUTPUT
             fi
             echo "IS_RELEASE=true" >> $GITHUB_OUTPUT
           else
-            # For beta releases, use root package.json version
+            # For develop branch, increment patch version
             CURRENT_VERSION=$(node -p "require('./package.json').version")
-            # Split version into parts
-            IFS='.' read -r major minor patch <<< "$CURRENT_VERSION"
-            # Create beta version with timestamp
-            echo "VERSION=${major}.${minor}.${patch}-beta.$(date +%Y%m%d%H%M)" >> $GITHUB_OUTPUT
+            # Remove any beta suffix for version calculation
+            BASE_VERSION=${CURRENT_VERSION%-*}
+            IFS='.' read -r major minor patch <<< "$BASE_VERSION"
+            NEW_PATCH=$((patch + 1))
+            echo "VERSION=${major}.${minor}.${NEW_PATCH}" >> $GITHUB_OUTPUT
             echo "IS_RELEASE=false" >> $GITHUB_OUTPUT
           fi
 
       - name: Update package versions
         run: |
+          # Function to update version in package.json
+          update_version() {
+            local pkg_file=$1
+            local new_version=$2
+            # Use jq to update version without triggering npm
+            jq --arg v "$new_version" '.version = $v' "$pkg_file" > "${pkg_file}.tmp"
+            mv "${pkg_file}.tmp" "$pkg_file"
+          }
+
+          # Function to update dependency version
+          update_dependency() {
+            local pkg_file=$1
+            local dep_name=$2
+            local new_version=$3
+            # Use jq to update dependency version
+            jq --arg v "^$new_version" ".dependencies[\"$dep_name\"] = \$v" "$pkg_file" > "${pkg_file}.tmp"
+            mv "${pkg_file}.tmp" "$pkg_file"
+          }
+
           # Update root package.json
-          npm version ${{ steps.get_version.outputs.VERSION }} --no-git-tag-version
+          update_version "package.json" "${{ steps.get_version.outputs.VERSION }}"
           
-          # Update all package versions
+          # Update all package versions and their dependencies
           for pkg in packages/*/package.json; do
-            npm version ${{ steps.get_version.outputs.VERSION }} --no-git-tag-version --prefix $(dirname $pkg)
+            # Update package version
+            update_version "$pkg" "${{ steps.get_version.outputs.VERSION }}"
+            
+            # Update internal dependencies
+            for dep in core client server nestjs; do
+              if grep -q "\"@ts-socketio/$dep\"" "$pkg"; then
+                update_dependency "$pkg" "@ts-socketio/$dep" "${{ steps.get_version.outputs.VERSION }}"
+              fi
+            done
           done
       
       - name: Publish packages
@@ -74,14 +104,14 @@ jobs:
             # For official releases, publish without beta tag
             for pkg in packages/*; do
               cd $pkg
-              npm publish
+              yarn publish --new-version ${{ steps.get_version.outputs.VERSION }} --no-git-tag-version
               cd ../..
             done
           else
-            # For beta releases, publish with beta tag
+            # For develop branch, publish with latest tag
             for pkg in packages/*; do
               cd $pkg
-              npm publish --tag beta
+              yarn publish --new-version ${{ steps.get_version.outputs.VERSION }} --tag latest --no-git-tag-version
               cd ../..
             done
           fi

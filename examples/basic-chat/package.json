@@ -1,6 +1,6 @@
 {
   "name": "ts-socketio-example-basic-chat",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "private": true,
   "scripts": {
     "dev:server": "nodemon --watch src --ext ts --exec ts-node src/server.ts",
@@ -9,7 +9,7 @@
   },
   "license": "MIT",
   "dependencies": {
-    "@ts-socketio/client": "0.0.1",
-    "@ts-socketio/server": "0.0.1"
+    "@ts-socketio/client": "^0.1.0",
+    "@ts-socketio/server": "^0.1.0"
   }
 }
