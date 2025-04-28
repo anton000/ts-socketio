@@ -3,6 +3,9 @@ name: Publish Package to GitHub Packages
 on:
   release:
     types: [created]
+  push:
+    branches:
+      - develop
 
 jobs:
   build:
@@ -12,6 +15,9 @@ jobs:
       packages: write
     steps:
       - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
       
       - name: Set up Node.js
         uses: actions/setup-node@v3
@@ -25,16 +31,80 @@ jobs:
       
       - name: Build packages
         run: yarn build
+
+      - name: Get version
+        id: get_version
+        run: |
+          if [[ $GITHUB_REF == refs/tags/* ]]; then
+            # For releases, use the tag version if it exists
+            TAG_VERSION=${GITHUB_REF#refs/tags/}
+            if [[ $TAG_VERSION == v* ]]; then
+              echo "VERSION=${TAG_VERSION#v}" >> $GITHUB_OUTPUT
+            else
+              # If no version in tag, increment minor version
+              CURRENT_VERSION=$(node -p "require('./package.json').version")
+              IFS='.' read -r major minor patch <<< "$CURRENT_VERSION"
+              NEW_MINOR=$((minor + 1))
+              echo "VERSION=${major}.${NEW_MINOR}.0" >> $GITHUB_OUTPUT
+            fi
+            echo "IS_RELEASE=true" >> $GITHUB_OUTPUT
+          else
+            # For beta releases, use root package.json version
+            CURRENT_VERSION=$(node -p "require('./package.json').version")
+            # Split version into parts
+            IFS='.' read -r major minor patch <<< "$CURRENT_VERSION"
+            # Create beta version with timestamp
+            echo "VERSION=${major}.${minor}.${patch}-beta.$(date +%Y%m%d%H%M)" >> $GITHUB_OUTPUT
+            echo "IS_RELEASE=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Update package versions
+        run: |
+          # Update root package.json
+          npm version ${{ steps.get_version.outputs.VERSION }} --no-git-tag-version
+          
+          # Update all package versions
+          for pkg in packages/*/package.json; do
+            npm version ${{ steps.get_version.outputs.VERSION }} --no-git-tag-version --prefix $(dirname $pkg)
+          done
       
       - name: Publish packages
         run: |
-          cd packages/core
-          npm publish
-          cd ../client
-          npm publish
-          cd ../server
-          npm publish
-          cd ../nestjs
-          npm publish
+          if [[ "${{ steps.get_version.outputs.IS_RELEASE }}" == "true" ]]; then
+            # For official releases, publish without beta tag
+            for pkg in packages/*; do
+              cd $pkg
+              npm publish
+              cd ../..
+            done
+          else
+            # For beta releases, publish with beta tag
+            for pkg in packages/*; do
+              cd $pkg
+              npm publish --tag beta
+              cd ../..
+            done
+          fi
         env:
-          NODE_AUTH_TOKEN: ${{secrets.GITHUB_TOKEN}} 
+          NODE_AUTH_TOKEN: ${{secrets.GITHUB_TOKEN}}
+
+      - name: Configure Git
+        run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+
+      - name: Commit and push version changes
+        run: |
+          git add .
+          git commit -m "chore: bump version to ${{ steps.get_version.outputs.VERSION }}"
+          git push
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create and push tag for releases
+        if: steps.get_version.outputs.IS_RELEASE == 'true'
+        run: |
+          git tag -a "v${{ steps.get_version.outputs.VERSION }}" -m "Release v${{ steps.get_version.outputs.VERSION }}"
+          git push origin "v${{ steps.get_version.outputs.VERSION }}"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} 
