@@ -13,6 +13,7 @@ import {
   InferPayload
 } from '@ts-socketio/nestjs';
 import { chatContract, ChatContractType } from './contract';
+//import { z } from 'zod';
 
 // Parse the contract as per the outline
 const { serverContract } = tsParseServerEvents(chatContract);

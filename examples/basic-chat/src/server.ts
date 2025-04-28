@@ -1,7 +1,11 @@
 import { createServer } from 'http';
-import { Server } from 'socket.io';
-import { createTypedSocketServer } from '@ts-socketio/server';
-import { chatContract } from './contract';
+import { Server } from 'socket.io'; // Remove unused Socket import
+import { v4 as uuidv4 } from 'uuid'; // Needed if generating traceId here
+import { createTypedSocketServer, EventHandlerContext } from '@ts-socketio/server'; // Remove unused ServerEmitters, EventHandlers
+// Remove unused MessageMetadata import
+// Import contract and custom metadata type
+import { chatContract, ChatContractType, CustomMetadata } from './contract';
+import { InferPayload } from '@ts-socketio/core';
 
 // Create HTTP server and Socket.IO server
 const httpServer = createServer();
@@ -20,32 +24,37 @@ interface User {
 
 const users: Record<string, User> = {};
 
-// Create our typed Socket.IO server
-const typedServer = createTypedSocketServer(io);
+// Create our typed Socket.IO server, passing contract and io
+const typedServer = createTypedSocketServer(chatContract, io);
+
+// Optional: Register server metadata provider
+typedServer.setMetadataProvider((_eventName, _payload, _target) => { // Prefix unused parameters
+    // Example: Add a simple trace ID to server-emitted events
+    return { traceId: `server-trace-${uuidv4().substring(0, 8)}` };
+});
 
 // Register contract handlers
-typedServer.registerContractHandlers(chatContract, (server) => {
-  console.log('Registering chat handlers');
+// Rely on inference for 'server' and return type, explicitly type 'ctx' in handlers
+typedServer.registerContractHandlers((server) => { 
+  console.log('Registering chat handlers with new architecture');
   return {
     // Handle setNickname event
-    setNickname: async ({ payload, socket }) => {
+    setNickname: async (ctx: EventHandlerContext<InferPayload<ChatContractType['definition']['Client']['setNickname']>, CustomMetadata>) => {
+      const { payload, metadata, socket } = ctx; // Now destructuring is type-safe
       console.log(`User ${socket.id} wants nickname: ${payload.nickname}`);
+      console.log(`  Client Msg ID: ${metadata.messageId}, Auth: ${metadata.authToken ?? 'N/A'}`);
       
-      // Store the user with the requested nickname
       const nickname = payload.nickname.trim();
-      users[socket.id] = {
-        id: socket.id,
-        nickname
-      };
+      users[socket.id] = { id: socket.id, nickname };
       
-      // Notify all users about the new user
+      // Emitter just takes payload, library handles metadata/envelope
       server.userNotification({
         userId: socket.id,
         nickname,
         message: `${nickname} joined the chat.`
-      });
+      }, { except: [socket.id] }); // Example: broadcast except sender
       
-      // Return success response
+      // Return ACK payload (not enveloped)
       return {
         success: true,
         message: 'Nickname set successfully',
@@ -54,54 +63,54 @@ typedServer.registerContractHandlers(chatContract, (server) => {
     },
     
     // Handle incoming messages
-    sendMessage: ({ payload, socket }) => {
+    sendMessage: (ctx) => {
+      const { payload, metadata, socket } = ctx; // Type-safe destructuring
+      console.log('Received message metadata:', metadata); // Log the metadata
       const user = users[socket.id];
-      if (!user) {
-        console.warn(`Message from unknown user ${socket.id}`);
-        return;
-      }
+      if (!user) return; // Ignore message if user not found
       
-      console.log(`Message from ${user.nickname}: ${payload.text}`);
+      console.log(`Message from ${user.nickname} (Msg ID: ${metadata.messageId}): ${payload.text}`);
       
-      // Broadcast message to all clients with sender info
-      server.sendMessage({
-        text: payload.text,
-        senderId: socket.id,
-        senderNickname: user.nickname
-      });
+      // Broadcast message envelope (library adds server metadata)
+      // We need to add sender info to the payload here as per the contract
+      const broadcastPayload: InferPayload<typeof chatContract.definition.sendMessage> = {
+          text: payload.text, 
+          senderId: socket.id,
+          senderNickname: user.nickname
+      };
+      server.sendMessage(broadcastPayload, { except: [socket.id] });
     },
     
     // Handle typing indicators
-    typing: ({ payload, socket }) => {
+    typing: (ctx: EventHandlerContext<InferPayload<ChatContractType['definition']['Client']['typing']>, CustomMetadata>) => {
+      const { payload, metadata, socket } = ctx; // Type-safe destructuring
+      console.log('Received message metadata:', metadata);
       const user = users[socket.id];
       if (!user) return;
       
-      // Broadcast typing status to all other clients
-      // Use the contract-defined typingStatus event
+      // Use the specific typingStatus event defined for Server -> Client
+      // Library handles metadata/envelope
       server.typingStatus({
         userId: socket.id,
         nickname: user.nickname,
         isTyping: payload.isTyping
-      });
+      }, { except: [socket.id] });
     }
   };
 });
 
-// Handle disconnections outside the contract (could be added to contract if desired)
+// Handle raw disconnections (metadata not involved here)
 io.on('connection', (socket) => {
   socket.on('disconnect', () => {
     const user = users[socket.id];
     if (user) {
       console.log(`User ${user.nickname} (${socket.id}) disconnected`);
-      
-      // Use a type assertion since TypeScript can't track the dynamic registration of handlers
-      (typedServer as any).userNotification({
+      // Use the typed emitter for notification
+      typedServer.userNotification({
         userId: socket.id,
         nickname: user.nickname,
         message: `${user.nickname} left the chat.`
       });
-      
-      // Remove from users
       delete users[socket.id];
     }
   });

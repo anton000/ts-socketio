@@ -7,9 +7,9 @@
     "examples/*"
   ],
   "scripts": {
-    "build": "yarn workspaces foreach -pt run build",
-    "test": "yarn workspaces foreach -pt run test",
-    "lint": "yarn workspaces foreach -pt run lint"
+    "build": "yarn workspaces run build",
+    "test": "yarn workspaces run test",
+    "lint": "yarn workspaces run lint"
   },
   "devDependencies": {
     "@nestjs/common": "^11.1.0",

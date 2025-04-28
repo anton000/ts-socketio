@@ -8,6 +8,7 @@ TypeScript library providing end-to-end type safety for Socket.IO communication 
 - **Contract-Based API**: Define your API structure once, use it on both client and server
 - **Runtime Validation**: Zod schemas ensure payloads and responses match at runtime
 - **RPC-Style Interface**: Clean, intuitive API for emitting events and handling responses
+- **Enhanced Decorators**: Streamlined NestJS integration with powerful decorators
 - **Zero Config**: No code generation step required
 
 ## Packages
@@ -130,8 +131,15 @@ httpServer.listen(3000);
 // Define a gateway
 import { WebSocketGateway, WebSocketServer } from '@nestjs/websockets';
 import { Server } from 'socket.io';
-import { TypedServer, TypedServerHandler, tsSocketioHandler } from '@ts-socketio/nestjs';
+import { 
+  TypedServer, 
+  TsSocketHandler, 
+  tsParseServerEvents 
+} from '@ts-socketio/nestjs';
 import { chatContract } from './contract';
+
+// Process contract for server-side handling
+const { serverContract } = tsParseServerEvents(chatContract);
 
 @WebSocketGateway()
 export class ChatGateway {
@@ -141,31 +149,36 @@ export class ChatGateway {
   @TypedServer(chatContract)
   typedServer;
 
-  @TypedServerHandler(chatContract.Client.setNickname)
-  handleSetNickname() {
-    return tsSocketioHandler(chatContract.Client.setNickname, ({ payload, socket }) => {
-      console.log(`User ${socket.id} set nickname: ${payload.nickname}`);
-      
-      // Broadcast with type-safety
-      this.typedServer.userJoined({ 
-        userId: socket.id, 
-        nickname: payload.nickname 
-      });
-      
-      // Type-safe response
-      return { success: true };
+  // Enhanced decorator automatically handles socket events
+  @TsSocketHandler(serverContract.setNickname)
+  async handleSetNickname(ctx) {
+    console.log(`User ${ctx.socket.id} set nickname: ${ctx.payload.nickname}`);
+    
+    // Broadcast with type-safety
+    this.typedServer.userJoined({ 
+      userId: ctx.socket.id, 
+      nickname: ctx.payload.nickname 
     });
+    
+    // Type-safe response (validated against schema)
+    return { success: true };
+  }
+
+  @TsSocketHandler(serverContract.sendMessage)
+  async handleSendMessage(ctx) {
+    // Context contains payload, metadata, socket, and io
+    const { payload, socket } = ctx;
+    
+    // Broadcast message to all clients
+    this.typedServer.sendMessage({ text: payload.text });
   }
 }
 
 // Register in module
 import { Module } from '@nestjs/common';
-import { TypedSocketIoModule } from '@ts-socketio/nestjs';
+import { ChatGateway } from './chat.gateway';
 
 @Module({
-  imports: [
-    TypedSocketIoModule.forContract(chatContract)
-  ],
   providers: [ChatGateway]
 })
 export class ChatModule {}
@@ -201,4 +214,4 @@ yarn workspace ts-socketio-example-nestjs-chat start:dev
 
 ## License
 
-MIT 
+MIT

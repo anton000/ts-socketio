@@ -1,119 +1,200 @@
 import { Server } from 'socket.io';
+import { v4 as uuidv4 } from 'uuid';
 import {
+    TypedSocketContract,
+    ContractOptions,
     DirectionalContractDefinition,
-    SocketContract,
-    InferPayload,
+    EventDefinition,
+    InferCustomMetadata,
+    InternalMessageMetadata,
+    MessageMetadata,
     validatePayload,
-    validateResponse
+    validateResponse,
+    SharedEvents
 } from '@ts-socketio/core';
 import {
     TypedSocketServer,
     TypedSocketServerBase,
-    EventHandlerContext
+    EventHandlerContext,
+    ServerMetadataProvider,
+    BroadcastOptions // Assuming BroadcastOptions is defined correctly in types
 } from './types';
 
 /**
  * Creates a type-safe Socket.IO server wrapper based on a shared contract.
  *
- * @param io The raw Socket.IO Server instance.
- * @param options Optional configuration (currently unused, placeholder for future features).
- * @returns A TypedSocketServer instance that must be completed by calling registerContractHandlers.
+ * @template TDef - The contract's event definition structure.
+ * @template TCustomMeta - The custom metadata type.
+ * @param {TypedSocketContract<TDef, ContractOptions<TCustomMeta>>} contract - The defined contract.
+ * @param {Server} io - The raw Socket.IO Server instance.
+ * @param {any} _options - Optional configuration (placeholder).
+ * @returns {TypedSocketServer<TypedSocketContract<TDef, ContractOptions<TCustomMeta>>>} A type-safe server instance.
  */
 export function createTypedSocketServer<
-  TContractDef extends DirectionalContractDefinition,
-  TProcessedContract extends SocketContract & { definition: TContractDef }
+    TDef extends DirectionalContractDefinition,
+    TCustomMeta extends object = {}
 >(
-  io: Server
-): TypedSocketServer<TProcessedContract> {
+    contract: TypedSocketContract<TDef, ContractOptions<TCustomMeta>>,
+  io: Server,
+    _options?: any // Placeholder for future options
+): TypedSocketServer<TypedSocketContract<TDef, ContractOptions<TCustomMeta>>> {
 
-  const typedServer: TypedSocketServerBase<TProcessedContract> = {
+    type ThisContract = TypedSocketContract<TDef, ContractOptions<TCustomMeta>>;
+    type ThisCustomMeta = InferCustomMetadata<ThisContract['options']>;
+
+    let metadataProvider: ServerMetadataProvider<ThisCustomMeta> | null = null;
+
+    // --- Create Base Server Object --- 
+    const typedServerBase: TypedSocketServerBase<ThisContract> = {
     io: io,
+        contract: contract,
 
-    // Implementation of registerContractHandlers
-    registerContractHandlers(contract, handlerFactory) {
-    const handlers = handlerFactory(typedServer as TypedSocketServer<TProcessedContract>);
-    const clientEventDefs = contract.clientEvents;
+        setMetadataProvider(provider) {
+            metadataProvider = provider;
+        },
 
-      // Now that we have the contract, dynamically add the server emitters to typedServer
-    for (const eventName in contract.serverEvents) {
-      if (Object.prototype.hasOwnProperty.call(contract.serverEvents, eventName)) {
-        const eventDef = contract.serverEvents[eventName]!;
+        registerContractHandlers(handlerFactory) {
+            const handlers = handlerFactory(typedServer as any); // Pass the fully formed server
 
-          // Basic collision check against existing properties
-          if (eventName in typedServer) {
-            console.warn(`[ts-socketio-server] Event name collision: Cannot create emitter for '${eventName}' as property already exists on the server.`);
-            continue; // Skip this emitter
-        }
-
-          // Add the type-safe emitter method to the server instance
-        (typedServer as any)[eventName] = (payload: InferPayload<typeof eventDef>) => {
-            io.emit(eventName, payload);
-        };
-      }
-    }
-
-      // Set up connection handler to register client event handlers for each socket
     io.on('connection', (socket) => {
       console.log(`[ts-socketio-server] Socket connected: ${socket.id}`);
 
-        // Register handlers for this specific socket
+                // Register handlers for this socket
       for (const eventName in handlers) {
         if (Object.prototype.hasOwnProperty.call(handlers, eventName)) {
-          const handler = handlers[eventName];
-            const eventDef = clientEventDefs[eventName]; // Get event definition from the contract
+                        const handler = handlers[eventName as keyof typeof handlers] as any;
+                        const eventDef = (contract.definition.Client?.[eventName] ?? contract.definition[eventName]) as EventDefinition | undefined;
 
           if (handler && eventDef) {
-              // Use type assertion to fix TypeScript error with socket.io's internal typings
-              (socket.on as any)(eventName, async (rawPayload: unknown, ack?: (response: any) => void) => {
-                // Prepare the context object that will be passed to the handler
-                const context: EventHandlerContext = {
-                  // We'll validate and assign the payload inside the try/catch
-                  payload: undefined as any, // Temporary placeholder
-                  metadata: {}, // Currently empty; could include timestamp, etc. in the future
+                            socket.on(eventName, async (envelope: unknown, ack?: (response: any) => void) => {
+
+                                // --- Envelope Unwrapping and Basic Validation ---
+                                if (typeof envelope !== 'object' || envelope === null || !('payload' in envelope) || !('metadata' in envelope)) {
+                                    console.error(`[ts-socketio-server] Received malformed envelope for event '${eventName}'. Expected { payload, metadata }. Got:`, envelope);
+                                    // TODO: Maybe send error via ack if available?
+                                    return;
+                                }
+                                const rawPayload = (envelope as any).payload;
+                                const rawMetadata = (envelope as any).metadata as InternalMessageMetadata & Partial<ThisCustomMeta>; // Trust incoming base meta shape for now
+                                
+                                const serverTimestamp = Date.now();
+                                const finalMetadata: MessageMetadata<ThisCustomMeta> = {
+                                    ...rawMetadata,
+                                    serverTimestamp,
+                                };
+
+                                // --- Prepare Context --- 
+                                const context: EventHandlerContext<any, ThisCustomMeta> = {
+                                    payload: undefined, // Will be validated next
+                                    metadata: finalMetadata, // Includes potentially unvalidated custom meta
                 socket: socket,
-                  io: io
+                                    io: io
               };
 
               try {
-                  // Validate the incoming payload against the schema in eventDef
-                  context.payload = validatePayload(eventDef, rawPayload);
+                                    // --- Payload Validation --- 
+                                    context.payload = validatePayload(eventDef, rawPayload);
 
-                  // Call the user-defined handler with the validated context
-                  const result = await handler(context as any);
+                                    // --- Custom Metadata Validation (if schema provided) ---
+                                    const customMetaSchema = contract.options?.metadataSchema;
+                                    if (customMetaSchema) {
+                                        const parseResult = customMetaSchema.safeParse(finalMetadata); // Validate custom part
+                                        if (!parseResult.success) {
+                                            throw new Error(`Custom metadata validation failed: ${parseResult.error.message}`);
+                                        }
+                                        // Ensure context.metadata has the strictly validated custom part
+                                        context.metadata = { ...finalMetadata, ...parseResult.data };
+                                    }
 
-                  // If the client is expecting a response (has provided an ack callback)
+                                    // --- Call User Handler --- 
+                                    const result = await handler(context as any); // Pass fully prepared context
+
+                                    // --- ACK Handling --- 
                 if (ack) {
+                  if (!eventDef.response) {
+                                            console.warn(`[ts-socketio-server] Event '${eventName}' received ACK, but no response schema is defined in contract.`);
+                                            ack(undefined); // Acknowledge without data
+                     return; 
+                  }
                   try {
-                      // Validate the handler's response against the schema
                     const validatedResponse = validateResponse(eventDef, result);
-                      ack(validatedResponse); // Send the response back to the client
-                  } catch (validationError) {
-                    console.error(`[ts-socketio-server] Error validating handler response for event '${eventName}':`, validationError);
-                      // Could potentially send an error response
-                      // ack({ error: 'Response validation failed' });
+                    ack(validatedResponse);
+                                        } catch (validationError: any) { 
+                                            console.error(`[ts-socketio-server] Error validating handler response for '${eventName}':`, validationError?.message || validationError);
+                                            // Maybe send error via ack? Needs careful design.
+                                            // ack({ __tsError: 'Response validation failed', details: validationError?.message });
                   }
                 } else if (eventDef.response) {
-                    // If the event definition specifies a response but client didn't provide ack
-                    console.warn(`[ts-socketio-server] Event '${eventName}' requires a response, but client did not provide an acknowledgement callback.`);
-                }
-              } catch (error) {
-                console.error(`[ts-socketio-server] Error handling event '${eventName}':`, error);
-                  // Could potentially send an error response
-                  // if (ack) ack({ error: 'Internal server error' });
+                                        console.warn(`[ts-socketio-server] Event '${eventName}' handler returned a value, but client did not provide an ACK callback.`);
+                                    }
+                                } catch (error: any) {
+                                    console.error(`[ts-socketio-server] Error processing event '${eventName}':`, error?.message || error);
+                                    // Maybe send error via ack?
+                                    // if (ack) ack({ __tsError: 'Server error', details: error?.message });
               }
             });
           }
         }
       }
 
-        // Set up disconnect handler
-        (socket.on as any)('disconnect', (reason: string) => {
+                socket.on('disconnect', (reason: string) => {
         console.log(`[ts-socketio-server] Socket disconnected: ${socket.id}, reason: ${reason}`);
       });
     });
-    }
-  };
+        }
+    };
 
-  // Return the server instance (emitters will be added upon calling registerContractHandlers)
-  return typedServer as TypedSocketServer<TProcessedContract>;
+    // --- Create Emitter Functions --- 
+    const emitters: any = {};
+    const serverEmitDefs = { ...(contract.definition.Server ?? {}), ...(contract.definition as SharedEvents<TDef>) };
+
+    for (const eventName in serverEmitDefs) {
+        if (Object.prototype.hasOwnProperty.call(serverEmitDefs, eventName)) {
+            if (eventName in typedServerBase) { 
+                console.warn(`[ts-socketio-server] Event name collision: Cannot create emitter for '${eventName}'.`);
+                continue;
+            }
+            
+            emitters[eventName] = async (payload: any, options?: BroadcastOptions) => {
+                const baseMetadata: InternalMessageMetadata = {
+                    messageId: uuidv4(),
+                    serverTimestamp: Date.now(),
+                };
+                let customMetadata: Partial<ThisCustomMeta> = {};
+                if (metadataProvider) {
+                    try {
+                        customMetadata = await metadataProvider(eventName, payload, options);
+                    } catch (err: any) {
+                        console.error(`[ts-socketio-server] Metadata provider failed for event '${eventName}':`, err?.message || err);
+                    }
+                }
+                const finalMetadata: MessageMetadata<ThisCustomMeta> = { 
+                    ...baseMetadata, 
+                    ...customMetadata 
+                } as MessageMetadata<ThisCustomMeta>; // Assert the final shape
+                
+                const envelope = { payload, metadata: finalMetadata }; 
+                
+                // Progressively build the target for emission
+                // Start with the base Server instance
+                let target: Server | ReturnType<typeof io.to> | ReturnType<typeof io.except> = io;
+                
+                if (options?.to) {
+                    target = target.to(options.to);
+                }
+                if (options?.except) {
+                    // .except() can be called on Server or BroadcastOperator
+                    target = target.except(options.except);
+                }
+                // .emit() exists on Server and BroadcastOperator
+                target.emit(eventName, envelope);
+            };
+        }
+    }
+
+    // --- Combine Base and Emitters --- 
+    const typedServer = { ...typedServerBase, ...emitters };
+
+    // Return the fully typed server instance
+    return typedServer as TypedSocketServer<ThisContract>;
 } 

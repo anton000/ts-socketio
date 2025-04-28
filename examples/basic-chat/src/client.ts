@@ -1,6 +1,7 @@
 import readline from 'readline';
 import { createTypedSocketClient } from '@ts-socketio/client';
-import { chatContract } from './contract';
+import { chatContract, CustomMetadata } from './contract';
+import { MessageMetadata } from '@ts-socketio/core';
 
 // Create command line interface
 const rl = readline.createInterface({
@@ -23,32 +24,35 @@ const clearLine = () => {
   readline.clearLine(process.stdout, 0);
 };
 
+// Set up metadata provider
+client.setMetadataProvider((_eventName, _payload) => {
+  const authToken = nickname ? `token-for-${nickname}` : undefined;
+  return { authToken };
+});
+
 // Set up listeners using our typed client
 const setupListeners = () => {
-  // Listen for user notifications (joins, leaves, etc.)
-  client.listeners.onUserNotification((payload) => {
+  // Listeners now receive (payload, metadata)
+  client.listeners.onUserNotification((payload, metadata: MessageMetadata<CustomMetadata>) => {
     clearLine();
-    console.log(`📢 ${payload.message}`);
+    console.log(`📢 ${payload.message} (Msg ID: ${metadata.messageId})`);
     promptUser();
   });
 
-  // Listen for incoming messages
-  client.listeners.onSendMessage((payload) => {
-    // Only show messages from others
+  client.listeners.onSendMessage((payload, metadata: MessageMetadata<CustomMetadata>) => {
     if (payload.senderId !== client.socket.id) {
       clearLine();
-      console.log(`${payload.senderNickname}: ${payload.text}`);
+      console.log(`${payload.senderNickname}: ${payload.text} (Auth: ${metadata.authToken ?? 'N/A'})`);
       promptUser();
     }
   });
 
-  // Listen for typing indicators
-  client.listeners.onTypingStatus((payload) => {
-    // Only show typing indicators from others
+  // Assuming contract still has Server -> Client typingStatus event
+  client.listeners.onTypingStatus((payload, metadata: MessageMetadata<CustomMetadata>) => {
     if (payload.userId !== client.socket.id) {
       clearLine();
       if (payload.isTyping) {
-        process.stdout.write(`${payload.nickname} is typing...`);
+        process.stdout.write(`${payload.nickname} is typing... (Msg ID: ${metadata.messageId})`);
       } else {
         // Just clear the typing indicator
       }
@@ -73,6 +77,7 @@ const setupListeners = () => {
 const promptForNickname = () => {
   rl.question('Enter your nickname: ', async (input) => {
     try {
+      // Emitter only needs the payload
       const response = await client.setNickname({ nickname: input });
       
       if (response.success) {
@@ -99,7 +104,6 @@ const promptUser = () => {
 
 // Handle user input
 const handleUserInput = (input: string) => {
-  // Cancel typing status
   if (isTyping) {
     isTyping = false;
     client.typing({ isTyping });
@@ -114,7 +118,6 @@ const handleUserInput = (input: string) => {
     return;
   }
 
-  // Send regular message
   if (input.trim()) {
     client.sendMessage({ text: input });
   }
@@ -131,7 +134,6 @@ rl.on('line', handleUserInput);
     isTyping = true;
     client.typing({ isTyping: true });
     
-    // Automatically turn off typing indicator after 3 seconds of inactivity
     setTimeout(() => {
       if (isTyping) {
         isTyping = false;

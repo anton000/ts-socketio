@@ -6,10 +6,17 @@ export type {
   TypedSocketServer,
   EventHandlerContext,
   EventHandlers,
-  ContractClientEvents,
-  ContractServerEvents,
-  ServerEmitters
+  ServerEmitters,
+  ServerEventHandler,
+  ServerMetadataProvider,
+  ServerEmitterEvents,
+  BroadcastOptions,
+  ServerHandlerEvents,
+  ServerSideEventDefinitions
 } from './types';
 
 // Re-export core types that might be useful for server users
 // export type { InferPayload, InferResponse } from '@ts-socketio/core';
+
+export { tsParseServerEvents } from './utils';
+export type { ParsedServerEvents } from './utils';

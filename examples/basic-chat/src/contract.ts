@@ -1,5 +1,11 @@
 import { defineSocketContract, z } from '@ts-socketio/core';
 
+// --- Custom Metadata Schema (Optional) ---
+const CustomMetadataSchema = z.object({
+  authToken: z.string().optional(),
+  // Can add more custom fields if needed
+});
+
 // --- Schemas ---
 
 // User schemas
@@ -42,8 +48,7 @@ const TypingStatusSchema = z.object({
   isTyping: z.boolean()
 });
 
-// --- Contract Definition ---
-
+// --- Contract Definition (Pass Metadata Schema in Options) ---
 export const chatContract = defineSocketContract({
   // Client -> Server Events
   Client: {
@@ -77,7 +82,14 @@ export const chatContract = defineSocketContract({
     payload: ChatMessageSchema
     // No response defined
   }
+}, {
+  // Pass the custom metadata schema here
+  metadataSchema: CustomMetadataSchema 
 });
 
 // Export types for convenience
-export type ChatContract = typeof chatContract; 
+export type ChatContractType = typeof chatContract;
+// Export the inferred custom metadata type
+export type CustomMetadata = z.infer<typeof CustomMetadataSchema>;
+// Optional: Export the raw definition type if needed elsewhere
+export type ChatContractDef = typeof chatContract.definition; 

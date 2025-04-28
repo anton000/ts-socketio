@@ -1,65 +1,112 @@
 import { z } from 'zod';
 import { Socket } from 'socket.io-client';
 import {
-    SocketContract,
+    TypedSocketContract,
     EventDefinition,
     EventDefinitions,
+    DirectionalContractDefinition,
     InferPayload,
     InferResponse,
-    MessageMetadata
+    InferCustomMetadata,
+    MessageMetadata,
+    SharedEvents
 } from '@ts-socketio/core';
 
-// --- Utility Types ---
+// --- Utility Types to Extract Event Definitions from Contract --- 
 
-export type ContractClientEvents<TContract extends SocketContract> = TContract['clientEvents'];
-export type ContractServerEvents<TContract extends SocketContract> = TContract['serverEvents'];
+// Extracts Client events + Shared events (relevant for client emitters)
+export type ClientEmitterEvents<TDef extends DirectionalContractDefinition> = 
+    NonNullable<TDef['Client']> & SharedEvents<TDef>;
 
-export type ReservedClientPropertyNames = 'socket' | 'contract' | 'options' | 'listeners' | 'emit' | 'on' | 'once' | 'off' | 'connect' | 'disconnect';
+// Extracts Server events + Shared events (relevant for client listeners)
+export type ClientListenerEvents<TDef extends DirectionalContractDefinition> = 
+    NonNullable<TDef['Server']> & SharedEvents<TDef>;
 
-// --- RPC-Style Emitter Types ---
+// --- Reserved Names --- 
+export type ReservedClientPropertyNames = 
+    'socket' | 'contract' | 'options' | 'listeners' | 'setMetadataProvider' | 
+    'emit' | 'on' | 'once' | 'off' | 'connect' | 'disconnect'; // Include new methods
 
+// --- RPC-Style Emitter Types (Client -> Server) ---
+
+/**
+ * Function signature for client emitters.
+ * Takes the payload.
+ * Returns Promise<response> if ack is expected, otherwise void.
+ * Sends an envelope { payload, metadata }.
+ */
 export type ClientEventEmitter<TEventDef extends EventDefinition> =
   TEventDef['response'] extends z.ZodSchema<any>
     ? (payload: InferPayload<TEventDef>) => Promise<InferResponse<TEventDef>>
     : (payload: InferPayload<TEventDef>) => void;
 
-export type ClientEmitters<TClientEvents extends EventDefinitions> = {
-  [K in keyof TClientEvents]: ClientEventEmitter<TClientEvents[K]>;
+/**
+ * Maps client-emit event names to their corresponding emitter functions.
+ */
+export type ClientEmitters<TEmitterEvents extends EventDefinitions> = {
+  [K in keyof TEmitterEvents]: ClientEventEmitter<TEmitterEvents[K]>;
 };
 
-// --- RPC-Style Listener Types ---
+// --- RPC-Style Listener Types (Server -> Client) ---
 
-export type ClientListenerCallback<TEventDef extends EventDefinition> =
-  (payload: InferPayload<TEventDef>, metadata: MessageMetadata) => void;
+/**
+ * Function signature for the callback provided by the user to handle incoming events.
+ * Receives the validated payload and the full MessageMetadata object.
+ */
+export type ClientListenerCallback<TPayload = any, TCustomMeta extends object = {}> =
+  (payload: TPayload, metadata: MessageMetadata<TCustomMeta>) => void;
 
-// Returns an unsubscribe function
-export type ClientListenerRegistrar<TEventDef extends EventDefinition> =
-  (callback: ClientListenerCallback<TEventDef>) => () => void;
+/**
+ * Function signature for the listener registration method (e.g., `client.listeners.onUserEvent`).
+ * Returns an unsubscribe function.
+ */
+export type ClientListenerRegistrar<TEventDef extends EventDefinition, TCustomMeta extends object = {}> =
+  (callback: ClientListenerCallback<InferPayload<TEventDef>, TCustomMeta>) => () => void;
 
-export type ClientListeners<TServerEvents extends EventDefinitions> = {
-  [K in keyof TServerEvents as `on${Capitalize<string & K>}`]: ClientListenerRegistrar<TServerEvents[K]>;
-  // TODO: Consider adding `once<EventName>` methods?
+/**
+ * An object containing the listener registration methods, named `on<EventName>`.
+ */
+export type ClientListeners<TListenerEvents extends EventDefinitions, TCustomMeta extends object = {}> = {
+  [K in keyof TListenerEvents as `on${Capitalize<string & K>}`]: ClientListenerRegistrar<TListenerEvents[K], TCustomMeta>;
 };
+
+// --- Metadata Provider --- 
+
+/**
+ * Function signature for the client metadata provider callback.
+ * Called before an event is emitted by the client.
+ * Should return the custom metadata object.
+ */
+export type ClientMetadataProvider<TCustomMeta extends object = {}> = 
+    (eventName: string, payload: any) => TCustomMeta | Promise<TCustomMeta>;
 
 // --- Typed Socket Client Interface ---
 
 /**
  * Represents the type-safe Socket.IO client instance.
+ * Generic over the full contract.
  */
-export type TypedSocketClient<TContract extends SocketContract> = {
+export type TypedSocketClient<TContract extends TypedSocketContract> = {
   /** The raw socket.io-client instance. Use for non-contract events or direct access. */
   readonly socket: Socket;
   /** The contract definition used by this client. */
   readonly contract: TContract;
-  /** The options used during client creation. */
-  readonly options?: object; // Keep options generic for now
+  /** The options used during client creation (placeholder). */
+  readonly options?: object; 
 
   /** Provides type-safe methods for subscribing to server-to-client events. */
-  readonly listeners: ClientListeners<ContractServerEvents<TContract>>;
+  readonly listeners: ClientListeners<ClientListenerEvents<TContract['definition']>, InferCustomMetadata<TContract['options']>>;
 
-  /** Connect the socket manually if autoConnect was false during creation. Returns the client instance for chaining. */
+  /** Connect the socket manually if autoConnect was false during creation. */
   connect: () => TypedSocketClient<TContract>;
-  /** Disconnect the socket. Returns the client instance for chaining. */
+  /** Disconnect the socket. */
   disconnect: () => TypedSocketClient<TContract>;
 
-} & ClientEmitters<ContractClientEvents<TContract>>; // Merge RPC emitters directly onto the client type 
+  /**
+   * Registers a provider function to generate custom metadata for client-emitted events.
+   */
+  setMetadataProvider(
+      provider: ClientMetadataProvider<InferCustomMetadata<TContract['options']>>
+  ): void;
+
+} & ClientEmitters<ClientEmitterEvents<TContract['definition']>>; // Merge RPC emitters directly onto the client type 
