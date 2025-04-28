@@ -23,7 +23,10 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "your-repo-url-here"
+    "url": "git+https://github.com/anton000/ts-socketio.git"
+  },
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com"
   },
   "keywords": [
     "nestjs",
