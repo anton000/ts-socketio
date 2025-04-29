@@ -2,12 +2,11 @@
 export { TypedServer } from './decorators/typed-server.decorator';
 export { TsSocketHandler } from './decorators/ts-socket-handler.decorator';
 
+// Export Types
+export type { TypedServerEmitter, EventHandlerParams } from './types';
+
 // Export Parser
 export { tsParseServerEvents } from '@ts-socketio/server';
-
-// Export Types
-export type { TypedServerEmitter } from './types';
-export type { EventHandlerContext as SocketEventHandlerContext } from '@ts-socketio/server';
 
 // Re-export key core types for convenience
 export type { 

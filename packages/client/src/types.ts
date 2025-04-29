@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { Socket } from 'socket.io-client';
 import {
-    TypedSocketContract,
+    SocketContract,
     EventDefinition,
     EventDefinitions,
     DirectionalContractDefinition,
@@ -86,7 +86,7 @@ export type ClientMetadataProvider<TCustomMeta extends object = {}> =
  * Represents the type-safe Socket.IO client instance.
  * Generic over the full contract.
  */
-export type TypedSocketClient<TContract extends TypedSocketContract> = {
+export type TypedSocketClient<TContract extends SocketContract> = {
   /** The raw socket.io-client instance. Use for non-contract events or direct access. */
   readonly socket: Socket;
   /** The contract definition used by this client. */

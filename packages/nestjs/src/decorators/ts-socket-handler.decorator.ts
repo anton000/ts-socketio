@@ -33,9 +33,24 @@ interface NestJsGateway {
 /**
  * Enhanced method decorator for handling specific ts-socketio contract events.
  * Handles both registration via @SubscribeMessage and processing with validation.
+ * 
+ * @param eventDef The event definition from the parsed contract
  */
-export function TsSocketHandler(eventDef: EventDefinition<any, any>): MethodDecorator;
-export function TsSocketHandler(eventName: string, eventDef: EventDefinition<any, any>): MethodDecorator;
+export function TsSocketHandler<TEventDef extends EventDefinition<any, any>>(
+  eventDef: TEventDef
+): MethodDecorator;
+
+/**
+ * Enhanced method decorator for handling specific ts-socketio contract events.
+ * Handles both registration via @SubscribeMessage and processing with validation.
+ * 
+ * @param eventName The custom event name to register
+ * @param eventDef The event definition from the parsed contract
+ */
+export function TsSocketHandler<TEventDef extends EventDefinition<any, any>>(
+  eventName: string, 
+  eventDef: TEventDef
+): MethodDecorator;
 
 /**
  * Implementation of the TsSocketHandler decorator.
@@ -43,9 +58,9 @@ export function TsSocketHandler(eventName: string, eventDef: EventDefinition<any
  * 1. TsSocketHandler(eventDef) - Uses the method name as the event name, removing "handle" prefix if present
  * 2. TsSocketHandler(eventName, eventDef) - Uses the provided event name
  */
-export function TsSocketHandler(
-    eventNameOrDef: string | EventDefinition<any, any>,
-    eventDef?: EventDefinition<any, any>
+export function TsSocketHandler<TEventDef extends EventDefinition<any, any>>(
+    eventNameOrDef: string | TEventDef,
+    eventDef?: TEventDef
 ): MethodDecorator {
     return (target: any, propertyKey: string | symbol, descriptor: PropertyDescriptor) => {
         let eventName: string;
@@ -204,7 +219,8 @@ export function TsSocketHandler(
             };
             
             // Create handler context
-            const context: EventHandlerContext<any, any> = {
+            // Use the EventHandlerContext interface for better typing
+            const context: EventHandlerContext<InferPayload<TEventDef>> = {
                 payload: validatedPayload,
                 metadata: fullMetadata,
                 socket,

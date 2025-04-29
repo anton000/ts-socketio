@@ -1,6 +1,6 @@
 import { Server, Socket } from 'socket.io';
 import {
-    TypedSocketContract,
+    SocketContract,
     EventDefinition,
     EventDefinitions,
     InferPayload,
@@ -92,7 +92,7 @@ export type ServerMetadataProvider<TCustomMeta extends object = {}> =
  * Base interface for the type-safe Socket.IO server instance.
  * Generic over the full contract definition and options.
  */
-export interface TypedSocketServerBase<TContract extends TypedSocketContract> {
+export interface TypedSocketServerBase<TContract extends SocketContract> {
   /** The raw Socket.IO Server instance for accessing lower-level functionality. */
   readonly io: Server;
   /** The processed contract object. */
@@ -123,7 +123,7 @@ export interface TypedSocketServerBase<TContract extends TypedSocketContract> {
  * The complete type-safe Socket.IO server instance, combining the base interface with 
  * the dynamically generated server emitter functions based on the contract.
  */
-export type TypedSocketServer<TContract extends TypedSocketContract> = 
+export type TypedSocketServer<TContract extends SocketContract> = 
   TypedSocketServerBase<TContract> & 
   ServerEmitters<ServerEmitterEvents<TContract['definition']>>;
 

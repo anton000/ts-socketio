@@ -10,6 +10,7 @@ import {
   TypedServerEmitter, 
   TsSocketHandler,       
   tsParseServerEvents,   
+  EventHandlerParams,
   InferPayload
 } from '@ts-socketio/nestjs';
 import { chatContract, ChatContractType } from './contract';
@@ -58,7 +59,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   // --- Event Handlers (Using updated decorator) ---
 
   @TsSocketHandler(serverContract.setNickname)
-  async handleSetNickname(ctx: any) { 
+  async handleSetNickname(ctx: EventHandlerParams<typeof serverContract.setNickname>) { 
     console.log(`[NestJS] User ${ctx.socket.id} wants nickname: ${ctx.payload.nickname}`);
     console.log(`  Metadata: Msg ID: ${ctx.metadata.messageId}`);
     
@@ -79,7 +80,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   }
 
   @TsSocketHandler(serverContract.sendMessage)
-  async handleSendMessage(ctx: any) {
+  async handleSendMessage(ctx: EventHandlerParams<typeof serverContract.sendMessage>) {
     const user = users[ctx.socket.id];
     if (!user) return;
     console.log(`[NestJS] Message from ${user.nickname}: ${ctx.payload.text}`);
@@ -93,7 +94,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   }
 
   @TsSocketHandler(serverContract.typing)
-  async handleTyping(ctx: any) {
+  async handleTyping(ctx: EventHandlerParams<typeof serverContract.typing>) {
     const user = users[ctx.socket.id];
     if (!user) return;
     console.log(`[NestJS] Typing status from ${user.nickname}: ${ctx.payload.isTyping}`);
