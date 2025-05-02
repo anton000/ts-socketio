@@ -2,7 +2,7 @@ import 'reflect-metadata'; // Ensure reflect-metadata is imported for decorators
 import { Logger } from '@nestjs/common';
 import { SubscribeMessage } from '@nestjs/websockets'; // Only need SubscribeMessage now
 import { EventDefinition } from '@ts-socketio/core'; // Need EventDefinition type
-import { Socket } from 'socket.io';
+import { Server, Socket } from 'socket.io';
 import { WsException } from '@nestjs/websockets';
 import { ZodError, ZodSchema } from 'zod';
 import { 
@@ -14,16 +14,17 @@ import {
 
 import { TYPED_SERVER_CONTRACT_KEY, TYPED_SERVER_PROPERTY_KEY, createTypedServerEmitter } from '../decorators/typed-server.decorator';
 import { EventHandlerContext } from '@ts-socketio/server';
+import { NestGateway } from '@nestjs/websockets/interfaces/nest-gateway.interface';
 
 // Logger for this file
 const logger = new Logger('ts-socketio/nestjs/TsSocketHandler');
 
 // Cache for initialized emitters per gateway instance
-const gatewayEmitterCache = new WeakMap<object, any>();
+export const gatewayEmitterCache = new WeakMap<object, any>();
 
 // Interface for NestJS gateway instance with required properties
-interface NestJsGateway {
-  server: any; // Socket.IO Server
+interface TSSocketGateway extends NestGateway {
+  _server: Server; // Socket.IO Server
   constructor: Function;
   [key: string]: any;
 }
@@ -106,7 +107,7 @@ export function TsSocketHandler<TEventDef extends EventDefinition<any, any>>(
             ));
             
             // 'this' here is the gateway instance when the method is called
-            const gatewayInstance = this as NestJsGateway;
+            const gatewayInstance = this as TSSocketGateway;
             
             // Find data and socket in the args using NestJS patterns
             let data: any;
@@ -162,9 +163,9 @@ export function TsSocketHandler<TEventDef extends EventDefinition<any, any>>(
             }
             
             // Set up the typed emitter if not already done
-            const io = gatewayInstance.server;
+            const io = gatewayInstance._server;
             if (!io) {
-                throw new Error(`Cannot find Socket.IO Server instance. Ensure a property is decorated with @WebSocketServer() and named 'server'.`);
+                throw new Error(`Cannot find Socket.IO Server instance.`);
             }
             
             if (!gatewayEmitterCache.has(gatewayInstance)) {

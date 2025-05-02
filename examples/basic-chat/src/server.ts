@@ -114,6 +114,14 @@ io.on('connection', (socket) => {
       delete users[socket.id];
     }
   });
+
+  //when client connects, send welcome message
+  console.log(`Client ${socket.id} connected`);
+  typedServer.notification({
+    type: 'welcome',
+    message: 'Welcome to the chat!'
+  }, { to: socket.id });
+  
 });
 
 // Start server

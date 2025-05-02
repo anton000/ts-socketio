@@ -48,6 +48,11 @@ const TypingStatusSchema = z.object({
   isTyping: z.boolean()
 });
 
+export const NotificationPayloadSchema = z.object({
+  type: z.string(),
+  message: z.string(),
+});
+
 // --- Contract Definition (Pass Metadata Schema in Options) ---
 export const chatContract = defineSocketContract({
   // Client -> Server Events
@@ -73,6 +78,9 @@ export const chatContract = defineSocketContract({
     // Typing status notification
     typingStatus: {
       payload: TypingStatusSchema
+    },
+    notification: {
+      payload: NotificationPayloadSchema
     }
   },
 

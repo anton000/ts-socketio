@@ -18,6 +18,11 @@ const UserNotificationPayloadSchema = z.object({ userId: z.string(), nickname: z
 const TypingPayloadSchema = z.object({ isTyping: z.boolean() });
 const TypingStatusSchema = z.object({ userId: z.string(), nickname: z.string(), isTyping: z.boolean() });
 
+export const NotificationPayloadSchema = z.object({
+  type: z.string(),
+  message: z.string(),
+});
+
 // Contract Definition
 export const chatContract = defineSocketContract({
   Client: {
@@ -35,6 +40,9 @@ export const chatContract = defineSocketContract({
     },
     typingStatus: {
       payload: TypingStatusSchema
+    },
+    notification: {
+      payload: NotificationPayloadSchema
     }
   },
   sendMessage: {

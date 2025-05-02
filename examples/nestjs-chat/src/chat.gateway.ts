@@ -1,10 +1,9 @@
 import { 
   WebSocketGateway, 
-  WebSocketServer, 
   OnGatewayConnection, 
   OnGatewayDisconnect, 
 } from '@nestjs/websockets';
-import { Server, Socket } from 'socket.io';
+import { Socket } from 'socket.io';
 import { 
   TypedServer, 
   TypedServerEmitter, 
@@ -26,14 +25,13 @@ interface User {
 }
 const users: Record<string, User> = {};
 
+
 @WebSocketGateway({
   cors: {
     origin: '*', // Allow all origins for example
   },
 })
 export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
-  @WebSocketServer()
-  server!: Server;
 
   @TypedServer(chatContract)
   typedServer!: TypedServerEmitter<ChatContractType>;
@@ -41,6 +39,12 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   // --- Lifecycle Hooks ---
   handleConnection(client: Socket) {
     console.log(`[NestJS] Client connected: ${client.id}`);
+    
+    this.typedServer.notification({
+      type: 'welcome',
+      message: 'Welcome to the chat!'
+    }, { to: client.id });
+    
   }
 
   handleDisconnect(client: Socket) {

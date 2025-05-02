@@ -8,6 +8,8 @@ import {
     MessageEnvelope
 } from '@ts-socketio/core';
 import { ServerEmitterEvents, ServerEmitters, BroadcastOptions as ServerBroadcastOptions } from '@ts-socketio/server'; // Import server types
+import { GATEWAY_SERVER_METADATA } from '@nestjs/websockets/constants';
+import { gatewayEmitterCache } from './ts-socket-handler.decorator';
 
 // Extend the BroadcastOptions interface to include additional properties needed for NestJS
 interface BroadcastOptions extends ServerBroadcastOptions {
@@ -27,6 +29,12 @@ export const TYPED_SERVER_CONTRACT_KEY = Symbol('ts-socketio:typed-server-contra
  */
 export function TypedServer(contract?: TypedSocketContract): PropertyDecorator {
   return (target: object, propertyKey: string | symbol) => {
+    //Add a property to the class prototype
+    (target as any)['_server'] = null;
+    
+    // Attach the metadata to the newly created property, to let
+    // the nestjs/websockets module know that this is a socket
+    Reflect.defineMetadata(GATEWAY_SERVER_METADATA, true, target, '_server');
     // Store metadata on the class prototype, associating the property key
     // with this decorator. The handler function will look for this.
     Reflect.defineMetadata(TYPED_SERVER_PROPERTY_KEY, propertyKey, target.constructor);
@@ -34,6 +42,20 @@ export function TypedServer(contract?: TypedSocketContract): PropertyDecorator {
     // If contract is provided, also store it for later use
     if (contract) {
       Reflect.defineMetadata(TYPED_SERVER_CONTRACT_KEY, contract, target.constructor);
+    }
+
+    // Monkey patch the afterInit method to create the typed emitter
+    const originalAfterInit = (target as any).afterInit;
+    (target as any).afterInit = function (...args: any[]) {
+      if (!this[propertyKey]) {
+        const io = this._server;
+        const contractMeta = contract || Reflect.getMetadata(TYPED_SERVER_CONTRACT_KEY, target.constructor);
+        this[propertyKey] = createTypedServerEmitter(io, contractMeta);
+        gatewayEmitterCache.set(this, this[propertyKey]); // <-- Store the emitter for this instance
+      }
+      if (typeof originalAfterInit === 'function') {
+        return originalAfterInit.apply(this, args);
+      }
     }
   };
 }

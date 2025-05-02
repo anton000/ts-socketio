@@ -32,6 +32,13 @@ client.setMetadataProvider((_eventName, _payload) => {
 
 // Set up listeners using our typed client
 const setupListeners = () => {
+  // 
+  client.listeners.onNotification((payload, metadata: MessageMetadata<CustomMetadata>) => {
+    clearLine();
+    console.log(`📢 ${payload.message} (Msg ID: ${metadata.messageId})`);
+    promptUser();
+  });
+  
   // Listeners now receive (payload, metadata)
   client.listeners.onUserNotification((payload, metadata: MessageMetadata<CustomMetadata>) => {
     clearLine();
