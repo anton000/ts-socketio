@@ -2,6 +2,8 @@ import {
   WebSocketGateway, 
   OnGatewayConnection, 
   OnGatewayDisconnect, 
+  ConnectedSocket,
+  MessageBody
 } from '@nestjs/websockets';
 import { Socket } from 'socket.io';
 import { 
@@ -10,7 +12,9 @@ import {
   TsSocketHandler,       
   tsParseServerEvents,   
   EventHandlerParams,
-  InferPayload
+  InferPayload,
+  MessageMetadata,
+  TSMeta
 } from '@ts-socketio/nestjs';
 import { chatContract, ChatContractType } from './contract';
 //import { z } from 'zod';
@@ -63,7 +67,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   // --- Event Handlers (Using updated decorator) ---
 
   @TsSocketHandler(serverContract.setNickname)
-  async handleSetNickname(ctx: EventHandlerParams<typeof serverContract.setNickname>) { 
+  async handleSetNickname(ctx: EventHandlerParams<typeof serverContract.setNickname>, @MessageBody() messageBody: string, @TSMeta() metadata: MessageMetadata<any>, @ConnectedSocket() socket: Socket) { 
     console.log(`[NestJS] User ${ctx.socket.id} wants nickname: ${ctx.payload.nickname}`);
     console.log(`  Metadata: Msg ID: ${ctx.metadata.messageId}`);
     

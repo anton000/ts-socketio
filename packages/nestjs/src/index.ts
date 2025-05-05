@@ -1,7 +1,7 @@
 // Export Decorators
 export { TypedServer } from './decorators/typed-server.decorator';
 export { TsSocketHandler } from './decorators/ts-socket-handler.decorator';
-
+export { TSMeta } from './decorators/ts-meta.decorator';
 // Export Types
 export type { TypedServerEmitter, EventHandlerParams } from './types';
 

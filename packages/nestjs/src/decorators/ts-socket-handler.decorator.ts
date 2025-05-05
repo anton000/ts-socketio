@@ -15,6 +15,10 @@ import {
 import { TYPED_SERVER_CONTRACT_KEY, TYPED_SERVER_PROPERTY_KEY, createTypedServerEmitter } from '../decorators/typed-server.decorator';
 import { EventHandlerContext } from '@ts-socketio/server';
 import { NestGateway } from '@nestjs/websockets/interfaces/nest-gateway.interface';
+import { PARAM_ARGS_METADATA } from '@nestjs/websockets/constants';
+// @ts-ignore
+import { inspect } from 'util';
+import { WsParamtype } from '@nestjs/websockets/enums/ws-paramtype.enum'
 
 // Logger for this file
 const logger = new Logger('ts-socketio/nestjs/TsSocketHandler');
@@ -23,7 +27,7 @@ const logger = new Logger('ts-socketio/nestjs/TsSocketHandler');
 export const gatewayEmitterCache = new WeakMap<object, any>();
 
 // Interface for NestJS gateway instance with required properties
-interface TSSocketGateway extends NestGateway {
+export interface TSSocketGateway extends NestGateway {
   _server: Server; // Socket.IO Server
   constructor: Function;
   [key: string]: any;
@@ -93,6 +97,22 @@ export function TsSocketHandler<TEventDef extends EventDefinition<any, any>>(
             throw new Error(`@TsSocketHandler requires a valid event definition object for event: ${eventName}.`);
         }
         
+        // Get the param metadata to check if the first parameter is decorated
+        const paramArgs: Record<string, any> = Reflect.getMetadata(PARAM_ARGS_METADATA, target.constructor, propertyKey) || {};
+        
+        // Check if the first parameter has any decorator
+        const hasFirstParamDecorator = Object.keys(paramArgs).some(key => {
+            const [_, indexString] = key.split(':');
+            return indexString === '0'; // Check if index is 0 (first parameter)
+        });
+        
+        if (hasFirstParamDecorator) {
+            throw new Error(
+                `@TsSocketHandler expects the first parameter of ${propertyKey.toString()} to be undecorated. ` +
+                `The first parameter will receive the context object with payload, metadata, socket, and io.`
+            );
+        }
+        
         // Store the event definition on the method for later use
         Reflect.defineMetadata('ts-socketio:event-definition', definition, descriptor.value);
         
@@ -102,9 +122,9 @@ export function TsSocketHandler<TEventDef extends EventDefinition<any, any>>(
         // Create a wrapper function that will handle the event
         descriptor.value = async function(...args: any[]) {
             logger.debug(`Handler called for ${eventName}`);
-            logger.debug(`Args:`, args.map(arg => 
+            /*logger.debug(`Args:`, args.map(arg => 
                 typeof arg === 'function' ? 'Function' : arg
-            ));
+            ));*/
             
             // 'this' here is the gateway instance when the method is called
             const gatewayInstance = this as TSSocketGateway;
@@ -129,12 +149,42 @@ export function TsSocketHandler<TEventDef extends EventDefinition<any, any>>(
                         // Also capture the client metadata if available
                         const clientMeta = args[1].metadata || {};
                         logger.debug('Found client metadata:', clientMeta);
-                    } else {
-                        // Just raw data
-                        data = args[1];
                     }
                 }
             }
+
+            if (!socket) {
+              // Try to extract param metadata using reflect-metadata
+              logger.debug('Cant get socket from args, trying to extract from nestjs metadata');
+              //const paramArgs: Record<string, any> = Reflect.getMetadata(PARAM_ARGS_METADATA, target.constructor, propertyKey);
+              if (paramArgs) {
+                  // Try to find indexes for SOCKET and PAYLOAD
+                  let socketIndex: number | undefined;
+                  let payloadIndex: number | undefined;
+                  for (const key of Object.keys(paramArgs)) {
+                      const [typeString, indexString] = key.split(':');
+                      if (!typeString || !indexString) continue;
+                      const metadataType = parseInt(typeString);
+                      const index = parseInt(indexString);
+                      if (metadataType === WsParamtype.SOCKET) {
+                          socketIndex = index;
+                      }
+                      if (metadataType === WsParamtype.PAYLOAD) {
+                          payloadIndex = index;
+                      }
+                  }
+
+                  if (!socket && typeof socketIndex === 'number' && args[socketIndex]) {
+                      socket = args[socketIndex];
+                      logger.debug(`Socket injected from metadata at index ${socketIndex}`);
+                  }
+                  if (!data && typeof payloadIndex === 'number' && args[payloadIndex]) {
+                      data = args[payloadIndex].payload;
+                      logger.debug(`Payload injected from metadata at index ${payloadIndex}`);
+                  }
+              }
+            }
+            
             
             if (!socket) {
                 logger.warn('Socket not found in arguments, will try to extract from context');
@@ -151,6 +201,10 @@ export function TsSocketHandler<TEventDef extends EventDefinition<any, any>>(
             
             if (!socket) {
                 throw new WsException('Socket instance not found');
+            }
+
+            if (!data) {
+                throw new WsException('Payload not found');
             }
             
             logger.log(`Processing ${eventName}, socket ID: ${socket.id}`);
@@ -229,8 +283,10 @@ export function TsSocketHandler<TEventDef extends EventDefinition<any, any>>(
             };
             
             try {
+                //copy the args, but remove the first args
+                const trimmedArgs = args.slice(1);
                 // Call the original method with the context
-                const result = await originalMethod.call(gatewayInstance, context);
+                const result = await originalMethod.call(gatewayInstance, context, ...trimmedArgs);
                 
                 // Validate response if needed
                 if (responseSchema && result !== undefined) {
