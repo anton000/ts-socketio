@@ -3,7 +3,7 @@ import { createParamDecorator, ExecutionContext } from '@nestjs/common';
  * Parameter decorator to inject ts-socketio message metadata into handler parameters.
  * Usage: handler(@TSMeta() metadata) { ... }
  */
-export const TSMeta = createParamDecorator(
+export const TsMeta = createParamDecorator(
   (data: string | undefined, ctx: ExecutionContext) => {
     const args = ctx.getArgs();
     if (args.length >= 2 && args[1] && typeof args[1] === 'object' && 'metadata' in args[1]) {

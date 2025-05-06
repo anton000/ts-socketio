@@ -15,6 +15,7 @@ import { gatewayEmitterCache } from './ts-socket-handler.decorator';
 interface BroadcastOptions extends ServerBroadcastOptions {
     target?: any; // Socket instance for direct emission
     only?: string[]; // List of socket IDs to emit to
+    room?: string | string[];
 }
 
 // Key for storing metadata
@@ -47,6 +48,7 @@ export function TypedServer(contract?: TypedSocketContract): PropertyDecorator {
     // Monkey patch the afterInit method to create the typed emitter
     const originalAfterInit = (target as any).afterInit;
     (target as any).afterInit = function (...args: any[]) {
+      console.log('afterInit', this, propertyKey);
       if (!this[propertyKey]) {
         const io = this._server;
         const contractMeta = contract || Reflect.getMetadata(TYPED_SERVER_CONTRACT_KEY, target.constructor);
@@ -140,7 +142,16 @@ export function createTypedServerEmitter<TContract extends TypedSocketContract>(
 
                 // Handle broadcast options
                 if (options) {
-                    if (options.except && Array.isArray(options.except)) {
+                  if (options.room) {
+                    // Send to specific room(s)
+                    if (Array.isArray(options.room)) {
+                        options.room.forEach(room => {
+                            io.to(room).emit(eventName, envelope);
+                        });
+                    } else {
+                        io.to(options.room).emit(eventName, envelope);
+                    }
+                  } else if (options.except && Array.isArray(options.except)) {
                         // Broadcast to all except the specified IDs
                         for (const socketId of options.except) {
                             io.sockets.sockets.forEach((socket) => {

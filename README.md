@@ -134,7 +134,9 @@ import { Server } from 'socket.io';
 import { 
   TypedServer, 
   TsSocketHandler, 
-  tsParseServerEvents 
+  tsParseServerEvents,
+  TsMeta,
+  TsSocketProvider 
 } from '@ts-socketio/nestjs';
 import { chatContract } from './contract';
 
@@ -149,10 +151,18 @@ export class ChatGateway {
   @TypedServer(chatContract)
   typedServer;
 
+  constructor(private readonly tsSocketProvider: TsSocketProvider) {}
+
+  onModuleInit() {
+    // Register this gateway with the provider for service-level access
+    this.tsSocketProvider.registerGateway(this);
+  }
+
   // Enhanced decorator automatically handles socket events
   @TsSocketHandler(serverContract.setNickname)
-  async handleSetNickname(ctx) {
+  async handleSetNickname(ctx, @TsMeta() metadata, @TsMeta('authToken') authToken) {
     console.log(`User ${ctx.socket.id} set nickname: ${ctx.payload.nickname}`);
+    console.log(`Metadata ID: ${metadata.messageId}, Auth Token: ${authToken}`);
     
     // Broadcast with type-safety
     this.typedServer.userJoined({ 
@@ -177,11 +187,31 @@ export class ChatGateway {
 // Register in module
 import { Module } from '@nestjs/common';
 import { ChatGateway } from './chat.gateway';
+import { TsSocketModule } from '@ts-socketio/nestjs';
+import { ChatService } from './chat.service';
 
 @Module({
-  providers: [ChatGateway]
+  imports: [TsSocketModule],
+  providers: [ChatGateway, ChatService]
 })
 export class ChatModule {}
+
+// Service-level access to emitters
+import { Injectable } from '@nestjs/common';
+import { TsSocketProvider } from '@ts-socketio/nestjs';
+
+@Injectable()
+export class ChatService {
+  constructor(private readonly tsSocketProvider: TsSocketProvider) {}
+  
+  async sendSystemMessage(message: string) {
+    // Get the emitter from the provider
+    const emitter = await this.tsSocketProvider.getEmitter();
+    
+    // Use the emitter to broadcast messages from services
+    emitter.sendMessage({ text: message, system: true });
+  }
+}
 ```
 
 ## Examples

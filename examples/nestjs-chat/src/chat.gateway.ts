@@ -14,9 +14,11 @@ import {
   EventHandlerParams,
   InferPayload,
   MessageMetadata,
-  TSMeta
+  TsMeta,
+  TsSocketProvider
 } from '@ts-socketio/nestjs';
 import { chatContract, ChatContractType } from './contract';
+import { ChatService } from './chat.service';
 //import { z } from 'zod';
 
 // Parse the contract as per the outline
@@ -36,6 +38,13 @@ const users: Record<string, User> = {};
   },
 })
 export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
+
+  constructor(private readonly chatService: ChatService, private readonly tsSocketProvider: TsSocketProvider) {}
+
+  async onModuleInit() {
+    await this.tsSocketProvider.registerGateway(this); // Registers this instance after DI is ready
+  }
+
 
   @TypedServer(chatContract)
   typedServer!: TypedServerEmitter<ChatContractType>;
@@ -67,7 +76,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   // --- Event Handlers (Using updated decorator) ---
 
   @TsSocketHandler(serverContract.setNickname)
-  async handleSetNickname(ctx: EventHandlerParams<typeof serverContract.setNickname>, @MessageBody() messageBody: string, @TSMeta() metadata: MessageMetadata<any>, @ConnectedSocket() socket: Socket) { 
+  async handleSetNickname(ctx: EventHandlerParams<typeof serverContract.setNickname>, @MessageBody() messageBody: string, @TsMeta() metadata: MessageMetadata<any>, @ConnectedSocket() socket: Socket) { 
     console.log(`[NestJS] User ${ctx.socket.id} wants nickname: ${ctx.payload.nickname}`);
     console.log(`  Metadata: Msg ID: ${ctx.metadata.messageId}`);
     
@@ -79,6 +88,9 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       nickname,
       message: `${nickname} joined the chat.`
     });
+
+    this.chatService.testEmitter();
+    
 
     return {
       success: true,
